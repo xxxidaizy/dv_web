@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="cn">
+<head>
+  <meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>点云展示平台</title>
+	<link rel="stylesheet" type="text/css" href="public/libs/jquery-ui/jquery-ui.min.css">
+	<link rel="stylesheet" type="text/css" href="public/libs/openlayers3/ol.css">
+	<link rel="stylesheet" type="text/css" href="public/libs/spectrum/spectrum.css">
+	<link rel="stylesheet" type="text/css" href="public/libs/jstree/themes/mixed/style.css">
+	<link type="text/css" rel="stylesheet" href="src/assets/main.css">
+</head>
+<body>
+  <div class="root" id="root">
+		<div class="main-viewer" id="main-viewer"></div>
+		<canvas id="main-viewer-mask"></canvas>
+  </div>
+	
+	<script src="public/libs/turf.min.js"></script>
+	<script src="public/libs/jquery/jquery-3.1.1.min.js"></script>
+	<script src="public/libs/spectrum/spectrum.js"></script>
+	<script src="public/libs/jquery-ui/jquery-ui.min.js"></script>
+	<script src="public/libs/other/BinaryHeap.js"></script>
+	<script src="public/libs/tween/tween.min.js"></script>
+	<script src="public/libs/d3/d3.js"></script>
+	<script src="public/libs/proj4/proj4.js"></script>
+	<script src="public/libs/openlayers3/ol.js"></script>
+	<script src="public/libs/i18next/i18next.js"></script>
+	<script src="public/libs/jstree/jstree.js"></script>
+	<script src="public/build/potree/potree.js"></script>
+	<script src="public/libs/plasio/js/laslaz.js"></script>
+
+  <script type="module">
+		import * as THREE from "../public/libs/three.js/build/three.module.js";
+		import { data } from "../public/trace.js";
+
+		window.viewer = new Potree.Viewer(document.getElementById("main-viewer"), { isStatic: true });
+		window.viewer.setEDLEnabled(true);
+    viewer.setFOV(60);
+    viewer.setPointBudget(3000000);
+
+    const tilesSingle = Potree.Tiles.getInstance({ viewer });
+    const renderCon = Potree.RenderController.getInstance({ viewer });
+		renderCon.initRender();
+
+    Potree.loadPointCloud("https://neolix-resource.eos-wuxi-5.cmecloud.cn/resources/edit/pro/octdata/JinChengShi-GaoPingShiShanXi-20241123_SG1.01/metadata.json", "tunnelRGB", e => {
+			const pointcloud = e.pointcloud;
+			let material = pointcloud.material;
+			material.size = 1;
+			material.pointSizeType = Potree.PointSizeType.FIEXD;
+			material.shape = Potree.PointShape.CIRCLE;
+			material.activeAttributeName = "intensity";
+			material.intensityRange = [0, 31];
+			material.intensityGamma = 0.39;
+
+			const scene = viewer.scene;
+			const camera = scene.getActiveCamera();
+			scene.addPointCloud(pointcloud);
+			viewer.setTopView();
+			viewer.fitToScreen(0.3);
+
+			{
+				const container = document.querySelector('#main-viewer');
+				const canvas = document.querySelector('#main-viewer-mask');
+        const ctx = canvas.getContext('2d');
+				const WIDTH = container.clientWidth;
+				const HEIGHT = container.clientHeight;
+				canvas.width = WIDTH;
+				canvas.height = HEIGHT;
+				const img = new Image()
+        img.src = '_mask.png';
+        img.onload = () => {
+					ctx.drawImage(img, 0, 0, WIDTH, HEIGHT);
+				};
+
+				ctx.beginPath(); //新建一条path
+				ctx.moveTo(e.clientX, e.clientY); //把画笔移动到指定的坐标
+				ctx.lineWidth = 20;
+				ctx.lineCap = 'round';
+				ctx.lineJoin = 'round';
+
+				// point
+				const geometry = new THREE.BufferGeometry();
+				geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+				const pointMaterial = new THREE.PointsMaterial({ color: 0xffff00, size: 200 });
+				const current = new THREE.Points(geometry, pointMaterial);
+				scene.scene.add(current);
+
+		
+				let interval = null;
+				let isPlaying = false;
+				let index = 0;
+				canvas.onmousedown = () => {
+					isPlaying = !isPlaying;
+					if(isPlaying) {
+						interval = setInterval(renderData, 1);
+					} else {
+						clearInterval(interval);
+						interval = null;
+					}
+				}
+				const renderData = () => {
+					if(!isPlaying)return
+					if(index < data.length) {
+						const i = data[ index++ ];
+						const x = i.lx || i.bx;
+						const y = i.ly || i.by;
+						const z = i.lz || i.bz;
+						const geo = { type: 'Point', coordinates: [ x, y, z ] };
+						const { geometry } = Potree.Utils.worldVectorToScreenVector(geo, viewer.renderArea, camera);
+						// 更新当前车的位置
+						current.position.set(x, y, z);
+						// 更新点云视图
+						ctx.lineTo(...geometry.coordinates[ 0 ]);
+						ctx.globalCompositeOperation = 'destination-out';
+						ctx.stroke();
+					} else {
+						index = 0;
+						clearInterval(interval);
+						interval = null;
+						isPlaying = false;
+						console.warn('end');
+					}
+				}
+
+		
+
+				// const renderData = () => {
+				// 	let index = 0;
+				// 	let interval = setInterval(() => {
+				// 		if(index < data.length) {
+				// 			const i = data[ index++ ];
+				// 			const x = i.lx || i.bx;
+				// 			const y = i.ly || i.by;
+				// 			const z = i.lz || i.bz;
+				// 			const geo = { type: 'Point', coordinates: [ x, y, z ] };
+				// 			const { geometry } = Potree.Utils.worldVectorToScreenVector(geo, viewer.renderArea, camera);
+				// 			// 更新当前车的位置
+				// 			current.position.set(x, y, z);
+				// 			// 更新点云视图
+				// 			console.log(...geometry.coordinates[ 0 ])
+				// 			ctx.lineTo(...geometry.coordinates[ 0 ]);
+				// 			ctx.globalCompositeOperation = 'destination-out';
+				// 			ctx.stroke();
+				// 		} else {
+				// 			clearInterval(interval);
+				// 			interval = null;
+				// 		}
+				// 	}, 10);
+				// }
+				// setTimeout(renderData, 1000);
+			}
+
+			// 弃用: BoxVolume 叠加导致页面崩溃
+			// {
+			// 	const initBoxVolumn = (x, y, z) => {
+			// 		const volume = new Potree.BoxVolume();
+			// 		volume.scale.set(100, 100, 100);
+			// 		volume.clip = true;
+			// 		volume.visible = true;
+			// 		volume.position.set(x, y, z);
+			// 		viewer.scene.addVolume(volume);
+			// 		viewer.setClipTask(Potree.ClipTask.HIGHLIGHT);
+			// 	}
+
+			// 	let index = 200;
+			// 	let interval = setInterval(() => {
+			// 		if(index < 400) {
+			// 			const item = data[ index ++ ];
+			// 			initBoxVolumn(item.lx || item.bx, item.ly || item.by, item.lz || item.bz);
+			// 		} else {
+			// 			clearInterval(interval);
+			// 			interval = null;
+			// 		}
+			// 	}, 100);
+			// }
+		});
+		
+  </script>
+</body>
+</html>
