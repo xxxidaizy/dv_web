@@ -27,6 +27,8 @@
 
   <script type="module">
 		import * as THREE from "../public/libs/three.js/build/three.module.js";
+		import { MTLLoader } from '../public/libs/three.js/loaders/MTLLoader.js';
+		import { OBJLoader } from '../public/libs/three.js/loaders/OBJLoader.js';
 		import { data } from "../public/trace.js";
 
 		const PCDResource = [
@@ -55,6 +57,14 @@
 			const tilesSingle = Potree.Tiles.getInstance({ viewer });
 			const renderCon = Potree.RenderController.getInstance({ viewer });
 			renderCon.initRender();
+
+			// Add Light
+			const ambient = new THREE.AmbientLight(0x444444);
+			const directionalLight = new THREE.DirectionalLight(0xffeedd);
+			directionalLight.position.set(0, 0, 1).normalize();
+			scene.scene.add(ambient);
+			scene.scene.add(directionalLight);
+
 			// render pointcloud
 			Promise.all(PCDResource.map(url => new Promise(resolve => {
 				return Potree.loadPointCloud(url, 'tunnelRGB', e => {
@@ -78,13 +88,48 @@
 			// 方法一：图片遮罩
 			const action = () => {
 				// render car location
-				const geometry = new THREE.BufferGeometry();
-				geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
-				const pointMaterial = new THREE.PointsMaterial({ color: 0xffff00, size: 40 });
-				const current = new THREE.Points(geometry, pointMaterial);
-				scene.scene.add(current);
+				const car = new THREE.Object3D();
+				scene.scene.add(car);
+				car.scale.set(8, 8, 8);
+				// load car obj
+				{
+					const mtlLoader = new MTLLoader();
+					const objLoader = new OBJLoader();
+					mtlLoader.load("../public/car.mtl", materials => {
+						materials.preload();
+						objLoader.setMaterials(materials);
+						objLoader.load("../public/car.obj", obj => {
+							obj.rotation.x = Math.PI / 2;
+							obj.rotation.y = Math.PI / 2;
+							car.add(obj);
+						});
+					})
+				}
+				// render car point
+				// {
+				// 	const geometry = new THREE.BufferGeometry();
+				// 	geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+				// 	const pointMaterial = new THREE.PointsMaterial({ color: 0xffff00, size: 40 });
+				// 	car.add(new THREE.Points(geometry, pointMaterial));
+				// }
+				// render car line
+				{
+					const v_w = 1.5;
+					const v_h = 3;
+					const vertices = new Float32Array([
+						-v_w, -v_h, 0,
+						v_w, -v_h, 0,
+						v_w, v_h, 0,
+						-v_w, v_h, 0,
+						-v_w, -v_h, 0
+					]);
+					const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
+    			const geometry = new THREE.BufferGeometry();
+					geometry.setAttribute('position', new THREE.BufferAttribute( vertices, 3 ));
+					car.add(new THREE.Line(geometry, material));
+				}
 
-				// render line
+				// render path
 				ctx.beginPath();
 				ctx.lineWidth = 60;
 				ctx.lineCap = 'round';
@@ -112,7 +157,8 @@
 						const geo = { type: 'Point', coordinates: [ x, y, z ] };
 						const { geometry } = Potree.Utils.worldVectorToScreenVector(geo, viewer.renderArea, scene.getActiveCamera());
 						// 更新当前车的位置
-						current.position.set(x, y, z);
+						car.position.set(x, y, z);
+						car.rotation.z -= 0.1;
 						// 更新点云视图
 						ctx.lineTo(...geometry.coordinates[ 0 ]);
 						ctx.globalCompositeOperation = 'destination-out';
@@ -126,6 +172,14 @@
 					}
 				}
 				interval = setInterval(renderData, 100);
+
+				// TODO: init websocket
+				{
+					window.websocket = new WebSocket('wss://ndp.data.neolix.cn:574/pointcloud');
+					websocket.onmessage = event => {
+						console.log(event.data);
+					};
+				}
 			}
 		}
 		// reload page
