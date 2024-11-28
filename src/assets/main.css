@@ -9,10 +9,10 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 999;
+  z-index: 999!important;
 }
 
-.main-viewer {
+#main-viewer {
   width: 100vw;
   height: 100vh;
   background-color: black;

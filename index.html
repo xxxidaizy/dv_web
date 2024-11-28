@@ -3,19 +3,15 @@
 <head>
   <meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>点云展示平台</title>
-	<link rel="stylesheet" type="text/css" href="public/libs/jquery-ui/jquery-ui.min.css">
-	<link rel="stylesheet" type="text/css" href="public/libs/openlayers3/ol.css">
-	<link rel="stylesheet" type="text/css" href="public/libs/spectrum/spectrum.css">
-	<link rel="stylesheet" type="text/css" href="public/libs/jstree/themes/mixed/style.css">
+  <title>实时三维重建</title>
 	<link type="text/css" rel="stylesheet" href="src/assets/main.css">
 </head>
 <body>
   <div class="root" id="root">
-		<div class="main-viewer" id="main-viewer"></div>
+		<div id="main-viewer"></div>
 		<canvas id="main-viewer-mask"></canvas>
   </div>
-	
+
 	<script src="public/libs/turf.min.js"></script>
 	<script src="public/libs/jquery/jquery-3.1.1.min.js"></script>
 	<script src="public/libs/spectrum/spectrum.js"></script>
@@ -32,150 +28,176 @@
 
   <script type="module">
 		import * as THREE from "../public/libs/three.js/build/three.module.js";
+		import { MTLLoader } from '../public/libs/three.js/loaders/MTLLoader.js';
+		import { OBJLoader } from '../public/libs/three.js/loaders/OBJLoader.js';
 		import { data } from "../public/trace.js";
 
-		window.viewer = new Potree.Viewer(document.getElementById("main-viewer"), { isStatic: true });
-		window.viewer.setEDLEnabled(true);
-    viewer.setFOV(60);
-    viewer.setPointBudget(3000000);
+		const PCDResource = [
+			// "https://neolix-resource.eos-wuxi-5.cmecloud.cn/resources/edit/pro/octdata/JinChengShi-GaoPingShiShanXi-20241123_SG1.01/metadata.json",
+			"https://neolix-resource.eos-wuxi-5.cmecloud.cn/resources/edit/pro/octdata/HangZhouShi-TongLuXian-20241127_SG1.01/metadata.json"
+		];
 
-    const tilesSingle = Potree.Tiles.getInstance({ viewer });
-    const renderCon = Potree.RenderController.getInstance({ viewer });
+		// render mask
+		const container = document.querySelector('#main-viewer');
+		const canvas = document.querySelector('#main-viewer-mask');
+		const ctx = canvas.getContext('2d');
+		const WIDTH = container.clientWidth;
+		const HEIGHT = container.clientHeight;
+		canvas.width = WIDTH;
+		canvas.height = HEIGHT;
+		ctx.fillStyle = 'black';
+		ctx.fillRect(0, 0, WIDTH, HEIGHT);
+		// init mask path
+		ctx.beginPath();
+		ctx.lineWidth = 60;
+		ctx.lineCap = 'round';
+		ctx.lineJoin = 'round';
+
+		window.viewer = new Potree.Viewer(container, { isStatic: true });
+		window.viewer.setEDLEnabled(true);
+		viewer.setFOV(60);
+		viewer.setPointBudget(3000000);
+		const scene = viewer.scene;
+		const tilesSingle = Potree.Tiles.getInstance({ viewer });
+		const renderCon = Potree.RenderController.getInstance({ viewer });
 		renderCon.initRender();
 
-    Potree.loadPointCloud("https://neolix-resource.eos-wuxi-5.cmecloud.cn/resources/edit/pro/octdata/JinChengShi-GaoPingShiShanXi-20241123_SG1.01/metadata.json", "tunnelRGB", e => {
-			const pointcloud = e.pointcloud;
-			let material = pointcloud.material;
-			material.size = 1;
-			material.pointSizeType = Potree.PointSizeType.FIEXD;
-			material.shape = Potree.PointShape.CIRCLE;
-			material.activeAttributeName = "intensity";
-			material.intensityRange = [0, 31];
-			material.intensityGamma = 0.39;
+		// Add Light
+		const ambient = new THREE.AmbientLight(0x444444);
+		const directionalLight = new THREE.DirectionalLight(0xffeedd);
+		directionalLight.position.set(0, 0, 1).normalize();
+		scene.scene.add(ambient);
+		scene.scene.add(directionalLight);
 
-			const scene = viewer.scene;
-			const camera = scene.getActiveCamera();
-			scene.addPointCloud(pointcloud);
+		// render pointcloud
+		Promise.all(PCDResource.map(url => new Promise(resolve => {
+			return Potree.loadPointCloud(url, 'tunnelRGB', e => {
+				const pointcloud = e.pointcloud;
+				let material = pointcloud.material;
+				material.size = 1;
+				material.pointSizeType = Potree.PointSizeType.FIEXD;
+				material.shape = Potree.PointShape.CIRCLE;
+				material.activeAttributeName = "intensity";
+				material.intensityRange = [0, 31];
+				material.intensityGamma = 0.39;
+				scene.addPointCloud(pointcloud);
+				resolve();
+			});
+		}))).then(() => {
 			viewer.setTopView();
-			viewer.fitToScreen(0.3);
+			viewer.fitToScreen(0.05);
 
-			{
-				const container = document.querySelector('#main-viewer');
-				const canvas = document.querySelector('#main-viewer-mask');
-        const ctx = canvas.getContext('2d');
-				const WIDTH = container.clientWidth;
-				const HEIGHT = container.clientHeight;
-				canvas.width = WIDTH;
-				canvas.height = HEIGHT;
-				const img = new Image()
-        img.src = '_mask.png';
-        img.onload = () => {
-					ctx.drawImage(img, 0, 0, WIDTH, HEIGHT);
-				};
-
-				ctx.beginPath(); //新建一条path
-				ctx.moveTo(e.clientX, e.clientY); //把画笔移动到指定的坐标
-				ctx.lineWidth = 20;
-				ctx.lineCap = 'round';
-				ctx.lineJoin = 'round';
-
-				// point
-				const geometry = new THREE.BufferGeometry();
-				geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
-				const pointMaterial = new THREE.PointsMaterial({ color: 0xffff00, size: 200 });
-				const current = new THREE.Points(geometry, pointMaterial);
-				scene.scene.add(current);
-
-		
-				let interval = null;
-				let isPlaying = false;
-				let index = 0;
-				canvas.onmousedown = () => {
-					isPlaying = !isPlaying;
-					if(isPlaying) {
-						interval = setInterval(renderData, 1);
-					} else {
-						clearInterval(interval);
-						interval = null;
-					}
-				}
-				const renderData = () => {
-					if(!isPlaying)return
-					if(index < data.length) {
-						const i = data[ index++ ];
-						const x = i.lx || i.bx;
-						const y = i.ly || i.by;
-						const z = i.lz || i.bz;
-						const geo = { type: 'Point', coordinates: [ x, y, z ] };
-						const { geometry } = Potree.Utils.worldVectorToScreenVector(geo, viewer.renderArea, camera);
-						// 更新当前车的位置
-						current.position.set(x, y, z);
-						// 更新点云视图
-						ctx.lineTo(...geometry.coordinates[ 0 ]);
-						ctx.globalCompositeOperation = 'destination-out';
-						ctx.stroke();
-					} else {
-						index = 0;
-						clearInterval(interval);
-						interval = null;
-						isPlaying = false;
-						console.warn('end');
-					}
-				}
-
-		
-
-				// const renderData = () => {
-				// 	let index = 0;
-				// 	let interval = setInterval(() => {
-				// 		if(index < data.length) {
-				// 			const i = data[ index++ ];
-				// 			const x = i.lx || i.bx;
-				// 			const y = i.ly || i.by;
-				// 			const z = i.lz || i.bz;
-				// 			const geo = { type: 'Point', coordinates: [ x, y, z ] };
-				// 			const { geometry } = Potree.Utils.worldVectorToScreenVector(geo, viewer.renderArea, camera);
-				// 			// 更新当前车的位置
-				// 			current.position.set(x, y, z);
-				// 			// 更新点云视图
-				// 			console.log(...geometry.coordinates[ 0 ])
-				// 			ctx.lineTo(...geometry.coordinates[ 0 ]);
-				// 			ctx.globalCompositeOperation = 'destination-out';
-				// 			ctx.stroke();
-				// 		} else {
-				// 			clearInterval(interval);
-				// 			interval = null;
-				// 		}
-				// 	}, 10);
-				// }
-				// setTimeout(renderData, 1000);
-			}
-
-			// 弃用: BoxVolume 叠加导致页面崩溃
-			// {
-			// 	const initBoxVolumn = (x, y, z) => {
-			// 		const volume = new Potree.BoxVolume();
-			// 		volume.scale.set(100, 100, 100);
-			// 		volume.clip = true;
-			// 		volume.visible = true;
-			// 		volume.position.set(x, y, z);
-			// 		viewer.scene.addVolume(volume);
-			// 		viewer.setClipTask(Potree.ClipTask.HIGHLIGHT);
-			// 	}
-
-			// 	let index = 200;
-			// 	let interval = setInterval(() => {
-			// 		if(index < 400) {
-			// 			const item = data[ index ++ ];
-			// 			initBoxVolumn(item.lx || item.bx, item.ly || item.by, item.lz || item.bz);
-			// 		} else {
-			// 			clearInterval(interval);
-			// 			interval = null;
-			// 		}
-			// 	}, 100);
-			// }
+			setTimeout(() => {
+				scene.view.position.x = 762380;
+				scene.view.position.y = 3299950;
+				initWebSocket();
+			}, 100)
 		});
-		
+
+		// init car Object3D
+		const car = new THREE.Object3D();
+		car.scale.set(8, 8, 8);
+		scene.scene.add(car);
+		// load car obj
+		{
+			const mtlLoader = new MTLLoader();
+			const objLoader = new OBJLoader();
+			mtlLoader.load("../public/car.mtl", materials => {
+				materials.preload();
+				objLoader.setMaterials(materials);
+				objLoader.load("../public/car.obj", obj => {
+					obj.rotation.x = Math.PI / 2;
+					obj.rotation.y = Math.PI / 2;
+					car.add(obj);
+				});
+			})
+		}
+		// render car line
+		{
+			const v_w = 1.4;
+			const v_h = 2.8;
+			const vertices = new Float32Array([
+				-v_w, -v_h, 0,
+				v_w, -v_h, 0,
+				v_w, v_h, 0,
+				-v_w, v_h, 0,
+				-v_w, -v_h, 0
+			]);
+			const material = new THREE.LineBasicMaterial({ color: 0x8ee9fc });
+			const geometry = new THREE.BufferGeometry();
+			geometry.setAttribute('position', new THREE.BufferAttribute( vertices, 3 ));
+			car.add(new THREE.Line(geometry, material));
+		}
+
+		// render track
+		const renderTrack = track => {
+			const { bx, by, bz, qx, qy, qz, qw } = track;
+			const quaternion = new THREE.Quaternion(qx, qy, qz, qw);
+			const euler = new THREE.Euler().setFromQuaternion(quaternion);
+			const coordinates = [ bx, by, bz ];
+			const geo = { type: 'Point', coordinates };
+			const { geometry } = Potree.Utils.worldVectorToScreenVector(geo, viewer.renderArea, scene.getActiveCamera());
+			// 更新当前车的位置
+			car.position.set(...coordinates);
+			car.rotation.z = euler.z;
+			// 更新点云视图
+			ctx.lineTo(...geometry.coordinates[ 0 ]);
+			ctx.globalCompositeOperation = 'destination-out';
+			ctx.stroke();
+		}
+
+			// init websocket
+		const initWebSocket = () => {
+			window.websocket = new WebSocket("wss://ndp.data.neolix.cn/service/pro/ndp/aiview/api/datawebsocket");
+			websocket.onopen = event => {
+				websocket.send(JSON.stringify({
+					vin: 'LHTBY2B29PY9DA090',
+					type: 'track_info',
+					command: 'pull'
+				}));
+			}
+			websocket.onmessage = event => {
+				if(event.data) {
+					renderTrack(JSON.parse(event.data));							
+				}
+			};
+		}
+	
+		// render track data_offline
+		// {
+		// 	let interval = null;
+		// 	let isPlaying = true;
+		// 	let index = 0;
+		// 	const renderData = () => {
+		// 		if(!isPlaying)return
+		// 		if(index < data.length) {
+		// 			renderTrack(data[ index++ ]);
+		// 		} else {
+		// 			index = 0;
+		// 			clearInterval(interval);
+		// 			interval = null;
+		// 			isPlaying = false;
+		// 			console.warn('end');
+		// 		}
+		// 	}
+		// 	canvas.onmousedown = () => {
+		// 		isPlaying = !isPlaying;
+		// 		if(isPlaying) {
+		// 			interval = setInterval(renderData, 1000);
+		// 		} else {
+		// 			clearInterval(interval);
+		// 			interval = null;
+		// 		}
+		// 	}
+		// 	interval = setInterval(renderData, 1000);
+		// }
+		// reload page
+		document.onkeydown = (e) => {
+			if(e.ctrlKey && e.key === 'z') {
+				window.location.reload();
+			}
+		}
+		window.addEventListener('resize', () => window.location.reload());
   </script>
 </body>
 </html>
