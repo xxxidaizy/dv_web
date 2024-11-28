@@ -68262,7 +68262,11 @@ void main() {
 	    getTileByPosition(position) {
 	      return { x: Math.floor(position.x / this.tileNum), y: Math.floor(position.y / this.tileNum) };
 	    }
-	    getTilesByRect(points) {
+	    getTilesByRect(points, camera) {
+	        // 根据相机位置瓦片，添加补偿机制：buffer 1
+	        camera = camera || this.scene.getActiveCamera();
+	        const cameraTile = this.getTileByPosition(camera.position);
+	        const { x, y } = cameraTile;
 	        let result = [];
 	        let arr = [];
 	        for (let i = 1; i < points.length; i++) {
@@ -68272,10 +68276,10 @@ void main() {
 	        }
 	        let xArr = arr.map(item => item.x).sort();
 	        let yArr = arr.map(item => item.y).sort();
-	        const minX = xArr[0];
-	        const minY = yArr[0];
-	        const maxX = xArr[xArr.length - 1];
-	        const maxY = yArr[yArr.length - 1];
+	        const minX = xArr[0] + (x < xArr[0]) * (-1);
+	        const minY = yArr[0] + (y < yArr[0]) * (-1);
+	        const maxX = xArr[xArr.length - 1] + (x > xArr[xArr.length - 1]) * 1;
+	        const maxY = yArr[yArr.length - 1] + (y > yArr[yArr.length - 1]) * 1;
 	        for (let i = minX; i < maxX + 1; i++) {
 	            for (let j = minY; j < maxY + 1; j++) {
 	                result.push({ x: i, y: j });
@@ -76635,6 +76639,21 @@ void main() {
 					[point.x - threshold, point.y - threshold]
 				]]);
 				let camera = this.scene.getActiveCamera();
+				const cameraTile = this.tiles.getTileByPosition(camera.position);
+				// 根据相机位置瓦片，添加补偿机制：buffer 1
+				const _tiles = [tile];
+				const { x, y } = tile;
+				const buffer_x = cameraTile.x > x ? 1 : -1;
+				const buffer_y = cameraTile.y > y ? 1 : -1;
+				if(cameraTile.x !== x) {
+					_tiles.push({ x: x + buffer_x, y });
+				}
+				if(cameraTile.y !== y) {
+					_tiles.push({ x, y: y + buffer_y });
+				}
+				if(cameraTile.x !== x && cameraTile.y !== y) {
+					_tiles.push({ x: x + buffer_x, y: y + buffer_y });
+				}
 				let interactables = [];
 	      const featurelist = Object.values(featureConfig);
 	      for(let i =0;i<featurelist.length;i++) {
@@ -76656,7 +76675,7 @@ void main() {
 		        const source = sourceController.getSource(featureType);
 	          if(!source) continue
 	          const sourceData = source.getData();
-	          const tileData = sourceData[`${tile.x}_${tile.y}`] || [];
+						const tileData = _tiles.map(ii => sourceData[`${ii.x}_${ii.y}`] || []).flat();
 
 	          for(let i = 0; i < tileData.length; i++) {
 	              const node = tileData[i];
