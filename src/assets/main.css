@@ -12,7 +12,7 @@ body {
   z-index: 999!important;
 }
 
-.main-viewer {
+#main-viewer {
   width: 100vw;
   height: 100vh;
   background-color: black;
