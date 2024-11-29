@@ -5,6 +5,13 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>点云展示平台</title>
 	<link type="text/css" rel="stylesheet" href="src/assets/main.css">
+</head>
+<body>
+  <div class="root" id="root">
+		<div class="main-viewer" id="main-viewer"></div>
+		<canvas id="main-viewer-mask"></canvas>
+  </div>
+
 	<script src="public/libs/turf.min.js"></script>
 	<script src="public/libs/jquery/jquery-3.1.1.min.js"></script>
 	<script src="public/libs/spectrum/spectrum.js"></script>
@@ -18,12 +25,6 @@
 	<script src="public/libs/jstree/jstree.js"></script>
 	<script src="public/build/potree/potree.js"></script>
 	<script src="public/libs/plasio/js/laslaz.js"></script>
-</head>
-<body>
-  <div class="root" id="root">
-		<div class="main-viewer" id="main-viewer"></div>
-		<canvas id="main-viewer-mask"></canvas>
-  </div>
 
   <script type="module">
 		import * as THREE from "../public/libs/three.js/build/three.module.js";
@@ -89,8 +90,8 @@
 			const action = () => {
 				// render car location
 				const car = new THREE.Object3D();
-				scene.scene.add(car);
 				car.scale.set(8, 8, 8);
+				scene.scene.add(car);
 				// load car obj
 				{
 					const mtlLoader = new MTLLoader();
@@ -114,8 +115,8 @@
 				// }
 				// render car line
 				{
-					const v_w = 1.5;
-					const v_h = 3;
+					const v_w = 1.4;
+					const v_h = 2.8;
 					const vertices = new Float32Array([
 						-v_w, -v_h, 0,
 						v_w, -v_h, 0,
@@ -123,7 +124,7 @@
 						-v_w, v_h, 0,
 						-v_w, -v_h, 0
 					]);
-					const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
+					const material = new THREE.LineBasicMaterial({ color: 0x8ee9fc });
     			const geometry = new THREE.BufferGeometry();
 					geometry.setAttribute('position', new THREE.BufferAttribute( vertices, 3 ));
 					car.add(new THREE.Line(geometry, material));
@@ -134,51 +135,72 @@
 				ctx.lineWidth = 60;
 				ctx.lineCap = 'round';
 				ctx.lineJoin = 'round';
-		
-				let interval = null;
-				let isPlaying = true;
-				let index = 0;
-				canvas.onmousedown = () => {
-					isPlaying = !isPlaying;
-					if(isPlaying) {
-						interval = setInterval(renderData, 100);
-					} else {
-						clearInterval(interval);
-						interval = null;
-					}
-				}
-				const renderData = () => {
-					if(!isPlaying)return
-					if(index < data.length) {
-						const i = data[ index++ ];
-						const x = i.lx || i.bx;
-						const y = i.ly || i.by;
-						const z = i.lz || i.bz;
-						const geo = { type: 'Point', coordinates: [ x, y, z ] };
-						const { geometry } = Potree.Utils.worldVectorToScreenVector(geo, viewer.renderArea, scene.getActiveCamera());
-						// 更新当前车的位置
-						car.position.set(x, y, z);
-						car.rotation.z -= 0.1;
-						// 更新点云视图
-						ctx.lineTo(...geometry.coordinates[ 0 ]);
-						ctx.globalCompositeOperation = 'destination-out';
-						ctx.stroke();
-					} else {
-						index = 0;
-						clearInterval(interval);
-						interval = null;
-						isPlaying = false;
-						console.warn('end');
-					}
-				}
-				interval = setInterval(renderData, 100);
 
-				// TODO: init websocket
+				// render track
+				const renderTrack = track => {
+					const { bx, by, bz, qx, qy, qz, qw } = track;
+					const quaternion = new THREE.Quaternion(qx, qy, qz, qw);
+					const euler = new THREE.Euler().setFromQuaternion(quaternion);
+					if(euler.z) {
+						console.log(euler.z, track.t)
+					}
+					const coordinates = [ bx, by, bz ];
+					const geo = { type: 'Point', coordinates };
+					const { geometry } = Potree.Utils.worldVectorToScreenVector(geo, viewer.renderArea, scene.getActiveCamera());
+					// 更新当前车的位置
+					car.position.set(...coordinates);
+					car.rotation.z = euler.z;
+					// 更新点云视图
+					ctx.lineTo(...geometry.coordinates[ 0 ]);
+					ctx.globalCompositeOperation = 'destination-out';
+					ctx.stroke();
+				}
+
+				// init websocket
+				// {
+				// 	window.websocket = new WebSocket("wss://ndp.data.neolix.cn/service/dev/ndp/aiview/api/datawebsocket");
+				// 	websocket.onopen = event => {
+				// 		websocket.send(JSON.stringify({
+				// 			vin: 'LHTBY2B22PY9DA089',
+				// 			type: 'track_info',
+				// 			command: 'pull'
+				// 		}));
+				// 	}
+				// 	websocket.onmessage = event => {
+				// 		console.log(JSON.parse(event.data));
+				// 		if(event.data) {
+				// 			renderTrack(JSON.parse(event.data));							
+				// 		}
+				// 	};
+				// }
+		
+				// render track data_offline
 				{
-					window.websocket = new WebSocket('wss://ndp.data.neolix.cn:574/pointcloud');
-					websocket.onmessage = event => {
-						console.log(event.data);
-					};
+					let interval = null;
+					let isPlaying = false;
+					let index = 0;
+					const renderData = () => {
+						if(!isPlaying)return
+						if(index < data.length) {
+							renderTrack(data[ index++ ]);
+						} else {
+							index = 0;
+							clearInterval(interval);
+							interval = null;
+							isPlaying = false;
+							console.warn('end');
+						}
+					}
+					canvas.onmousedown = () => {
+						isPlaying = !isPlaying;
+						if(isPlaying) {
+							interval = setInterval(renderData, 100);
+						} else {
+							clearInterval(interval);
+							interval = null;
+						}
+					}
+					interval = setInterval(renderData, 1000);
 				}
 			}
 		}
