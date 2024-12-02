@@ -85,8 +85,13 @@
 			});
 		}))).then(() => {
 			viewer.setTopView();
-			viewer.fitToScreen(0.3);
-			initWebSocket();
+			viewer.fitToScreen(0.05);
+
+			setTimeout(() => {
+				scene.view.position.x = 762380;
+				scene.view.position.y = 3299950;
+				initWebSocket();
+			}, 100)
 		});
 
 		// init car Object3D
@@ -143,10 +148,10 @@
 
 			// init websocket
 		const initWebSocket = () => {
-			window.websocket = new WebSocket("wss://ndp.data.neolix.cn/service/dev/ndp/aiview/api/datawebsocket");
+			window.websocket = new WebSocket("wss://ndp.data.neolix.cn/service/pro/ndp/aiview/api/datawebsocket");
 			websocket.onopen = event => {
 				websocket.send(JSON.stringify({
-					vin: 'LHTBY2B22PY9DA089',
+					vin: 'LHTBY2B29PY9DA090',
 					type: 'track_info',
 					command: 'pull'
 				}));
